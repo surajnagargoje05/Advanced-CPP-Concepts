@@ -34,7 +34,7 @@ int main()
 
     std::thread thread2(detachedTask);
 
-    thread2.detach();                                   // Main thread does not wait for thread2
+    thread2.join();                                   // Main thread does not wait for thread2
 
     std::cout << "Suraj is developer - printed immediately after detach\n";      // This line executes immediately
 

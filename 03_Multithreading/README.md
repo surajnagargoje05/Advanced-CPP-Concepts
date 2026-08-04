@@ -315,3 +315,26 @@ Use `detach()` carefully because the detached thread must not access data that m
 ```text
 02_join_and_detach.cpp
 ```
+---
+
+# 4. Thread Internal Working
+
+Before learning synchronization concepts, it is important to understand how threads work internally at the operating-system level.
+
+This topic includes:
+
+* Process and thread relationship
+* How `std::thread` creates a thread internally
+* System calls used by threads
+* Shared and separate thread memory
+* Thread stack and heap
+* CPU registers and instruction pointer
+* Thread scheduling and states
+* Context switching
+* Concurrency and parallelism
+* Internal working of `sleep_for()`, `join()`, and `detach()`
+* Basic reason behind race conditions and mutexes
+
+For complete details, refer to:
+
+[Thread Internal Working](docs/thread-internal-working.md)
