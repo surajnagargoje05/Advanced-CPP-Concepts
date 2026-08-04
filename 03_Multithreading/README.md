@@ -335,6 +335,4 @@ This topic includes:
 * Internal working of `sleep_for()`, `join()`, and `detach()`
 * Basic reason behind race conditions and mutexes
 
-For complete details, refer to:
-
-[Thread Internal Working](docs/thread-internal-working.md)
+For complete details, refer to: [Thread Internal Working](docs/thread-internal-working.md)
