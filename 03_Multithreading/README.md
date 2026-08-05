@@ -2158,3 +2158,266 @@ Thread 2: bala## Related File
 One thread may wait, but eventually both threads complete successfully.
 
 ```
+---
+
+# 16. Preventing Deadlock Using `std::lock()`
+
+## Why Do We Need `std::lock()`?
+
+When one operation needs multiple mutexes, we may lock them manually.
+
+```cpp
+balanceMutex.lock();
+logMutex.lock();
+```
+
+Manual locking is risky because different threads may lock the same mutexes in different orders.
+
+```text
+Thread 1:
+balanceMutex → logMutex
+
+Thread 2:
+logMutex → balanceMutex
+```
+
+This can create a deadlock.
+
+`std::lock()` is used to acquire multiple mutexes while avoiding deadlock caused by different locking orders.
+
+Required header:
+
+```cpp
+#include <mutex>
+```
+
+## Basic Syntax
+
+```cpp
+lock(mutex1, mutex2);
+```
+
+After this statement completes successfully, the current thread owns both mutexes.
+
+```text
+Current thread owns:
+mutex1
+mutex2
+```
+
+## Manual Locking vs `std::lock()`
+
+### Manual Locking
+
+```cpp
+balanceMutex.lock();
+logMutex.lock();
+```
+
+The developer must maintain the same lock order everywhere.
+
+If another thread uses the opposite order, deadlock may occur.
+
+### Using `std::lock()`
+
+```cpp
+lock(balanceMutex, logMutex);
+```
+
+`std::lock()` tries to acquire all provided mutexes without creating a deadlock between those lock attempts.
+
+Conceptually:
+
+```text
+Try to acquire all mutexes
+          ↓
+Could not acquire all
+          ↓
+Release any mutex already acquired
+          ↓
+Try again
+```
+
+The exact internal implementation depends on the C++ standard library.
+
+## Why Use `unique_lock` with `defer_lock`?
+
+We also need automatic unlocking.
+
+Normally, `unique_lock` immediately locks its mutex:
+
+```cpp
+unique_lock<mutex> lock1(balanceMutex);
+```
+
+But we want `std::lock()` to acquire both mutexes together.
+
+Therefore, we create the `unique_lock` objects using `defer_lock`.
+
+```cpp
+unique_lock<mutex> lock1(balanceMutex, defer_lock);
+unique_lock<mutex> lock2(logMutex, defer_lock);
+```
+
+`defer_lock` means:
+
+```text
+Create the unique_lock object,
+but do not lock the mutex yet.
+```
+
+Then both locks are passed to `std::lock()`:
+
+```cpp
+lock(lock1, lock2);
+```
+
+## Complete Pattern
+
+```cpp
+unique_lock<mutex> lock1(balanceMutex, defer_lock);
+unique_lock<mutex> lock2(logMutex, defer_lock);
+
+lock(lock1, lock2);
+
+// Critical section
+```
+
+Execution flow:
+
+```text
+lock1 is created
+balanceMutex is not locked
+
+lock2 is created
+logMutex is not locked
+
+std::lock() is called
+Both mutexes are acquired safely
+
+Critical section executes
+
+Scope ends
+Both unique_lock objects are destroyed
+Both mutexes are automatically unlocked
+```
+
+## Responsibilities
+
+```text
+mutex:
+Protects the shared resource
+
+unique_lock:
+Manages ownership and automatic unlocking
+
+defer_lock:
+Prevents immediate locking
+
+std::lock():
+Acquires multiple locks without deadlock
+```
+
+## Realistic Example: Money Transfer
+
+Suppose money must be transferred between two bank accounts.
+
+The operation must:
+
+```text
+1. Deduct money from the source account
+2. Add money to the destination account
+```
+
+Both accounts must be protected during the complete transfer.
+
+```text
+Transfer A to B:
+Needs Account A mutex and Account B mutex
+
+Transfer B to A:
+Needs Account B mutex and Account A mutex
+```
+
+Manual locking may create opposite lock orders.
+
+Using `std::lock()` allows both account locks to be acquired safely.
+
+## Important
+
+`std::lock()` does not automatically unlock mutexes when raw mutex objects are passed.
+
+This requires manual unlocking:
+
+```cpp
+lock(mutex1, mutex2);
+
+// Critical section
+
+mutex2.unlock();
+mutex1.unlock();
+```
+
+Using `unique_lock` with `defer_lock` is safer because both mutexes are unlocked automatically when the scope ends.
+
+## When Should We Use `std::lock()`?
+
+Use it when one operation needs multiple mutexes together.
+
+Examples:
+
+```text
+Transfer money between two accounts
+Move an item between two queues
+Access sensor data and robot state together
+Update balance and transaction history
+Copy data between two shared objects
+```
+
+## Important Limitation
+
+`std::lock()` prevents deadlock while acquiring the mutexes passed in the same call.
+
+It does not automatically fix every possible deadlock in the complete application.
+
+Deadlocks can still happen because of:
+
+```text
+Other mutexes
+Nested locking
+Incorrect application design
+Waiting for external resources
+Holding locks during callbacks
+```
+
+## Final Summary
+
+```text
+Manual multiple locking:
+Developer controls the lock order.
+Wrong order may cause deadlock.
+
+std::lock():
+Acquires multiple locks without deadlock.
+
+unique_lock with defer_lock:
+Creates lock managers without immediately locking.
+
+When the scope ends:
+unique_lock automatically releases the mutexes.
+```
+
+Remember this pattern:
+
+```cpp
+unique_lock<mutex> lock1(mutex1, defer_lock);
+unique_lock<mutex> lock2(mutex2, defer_lock);
+
+lock(lock1, lock2);
+```
+
+## Related File
+
+```text
+14_std_lock.cpp
+```
