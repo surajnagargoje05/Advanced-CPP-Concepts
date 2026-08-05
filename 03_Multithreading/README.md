@@ -767,3 +767,690 @@ The practical file uses a realistic warehouse inventory example:
 ```text
 05_race_condition.cpp
 ```
+---
+
+# 8. Mutex
+
+A mutex is used to protect shared data from being accessed by multiple threads at the same time.
+
+Mutex means **mutual exclusion**.
+
+It allows only one thread at a time to enter the protected section of code.
+
+## Why Do We Need a Mutex?
+
+Suppose two threads modify the same variable:
+
+```cpp
+int counter = 0;
+
+void increment(){
+    counter++;
+}
+```
+
+Both threads may read and update `counter` at the same time, causing a race condition.
+
+A mutex prevents this by allowing only one thread to modify the shared variable at a time.
+
+## Required Header
+
+```cpp
+#include <mutex>
+```
+
+## Basic Syntax
+
+```cpp
+mutex mtx;
+
+mtx.lock();
+
+// Protected shared-data operation
+
+mtx.unlock();
+```
+
+The code between `lock()` and `unlock()` is called a **critical section**.
+
+## How It Works
+
+```text
+Thread 1 locks the mutex
+Thread 1 enters the critical section
+
+Thread 2 tries to lock the mutex
+Thread 2 waits because the mutex is already locked
+
+Thread 1 completes its work
+Thread 1 unlocks the mutex
+
+Thread 2 gets the mutex
+Thread 2 enters the critical section
+```
+
+Only the thread that successfully locks the mutex should unlock it.
+
+## Example
+
+```cpp
+mutex mtx;
+int counter = 0;
+
+void increment(){
+    mtx.lock();
+
+    counter++;
+
+    mtx.unlock();
+}
+```
+
+Now only one thread can execute `counter++` at a time.
+
+## Important Problem with Manual `lock()` and `unlock()`
+
+If the function returns early or an exception occurs before `unlock()`, the mutex may remain locked.
+
+```cpp
+mtx.lock();
+
+if(error){
+    return; // Mutex is never unlocked
+}
+
+mtx.unlock();
+```
+
+Other threads may then wait forever.
+
+This can cause a deadlock.
+
+Because of this, `lock_guard` is usually safer than manually calling `lock()` and `unlock()`.
+
+`lock_guard` will be covered in the next topic.
+
+## Related File
+
+The practical example fixes the warehouse inventory race condition using a mutex:
+
+```text
+06_mutex.cpp
+```
+---
+
+# 9. `lock_guard`
+
+Manual `lock()` and `unlock()` are risky because we may forget to unlock the mutex.
+
+Example:
+
+```cpp
+stockMutex.lock();
+
+if(error){
+    return; // Mutex remains locked
+}
+
+stockMutex.unlock();
+```
+
+If the function returns early or an exception occurs, `unlock()` may not execute.
+
+This can make other threads wait forever.
+
+## Why Use `lock_guard`?
+
+`lock_guard` automatically:
+
+```text
+Locks the mutex when created
+Unlocks the mutex when the scope ends
+```
+
+Required header:
+
+```cpp
+#include <mutex>
+```
+
+Basic syntax:
+
+```cpp
+lock_guard<mutex> lock(mtx);
+```
+
+Example:
+
+```cpp
+mutex mtx;
+
+void update(){
+    lock_guard<mutex> lock(mtx);
+
+    // Critical section
+}
+```
+
+The mutex is locked when `lock` is created.
+
+When the function or block ends, `lock_guard` is destroyed and the mutex is automatically unlocked.
+
+## Scope Example
+
+```cpp
+{
+    lock_guard<mutex> lock(mtx);
+
+    // Mutex is locked here
+}
+
+// Mutex is automatically unlocked here
+```
+
+## Main Benefit
+
+```text
+Manual lock/unlock:
+Developer must unlock manually.
+
+lock_guard:
+Mutex is unlocked automatically.
+```
+
+`lock_guard` is safer for simple critical sections.
+
+## Important
+
+`lock_guard` cannot be manually unlocked before the scope ends.
+
+When more control is required, `unique_lock` can be used.
+
+## Related File
+
+The practical example protects warehouse stock using `lock_guard`:
+
+```text
+07_lock_guard.cpp
+```
+---
+
+# 10. `unique_lock`
+
+## Why Do We Need `unique_lock` When `lock_guard` Already Exists?
+
+`lock_guard` is useful when we want to lock a mutex at the beginning of a scope and unlock it automatically at the end.
+
+```cpp
+{
+    lock_guard<mutex> lock(mtx);
+
+    // Mutex remains locked in this complete scope
+}
+```
+
+This is simple and safe.
+
+However, sometimes we do not want the mutex to remain locked for the complete function or scope.
+
+We may need to:
+
+```text
+Lock the mutex later
+Unlock the mutex before the scope ends
+Lock the mutex again
+Transfer lock ownership
+Wait using condition_variable
+```
+
+`lock_guard` does not provide these operations.
+
+For such cases, we use `unique_lock`.
+
+In simple words:
+
+```text
+lock_guard  -> Simple automatic locking
+unique_lock -> Automatic locking with extra control
+```
+
+---
+
+## Realistic Example
+
+Suppose an order-processing function performs three tasks:
+
+```text
+1. Process payment
+2. Check and update stock
+3. Package the order
+```
+
+Only the stock update needs protection.
+
+Payment processing and packaging do not use the shared stock.
+
+If we use `lock_guard` for the complete function:
+
+```cpp
+void processOrder(){
+    lock_guard<mutex> lock(stockMutex);
+
+    processPayment();
+    updateStock();
+    packageOrder();
+}
+```
+
+The mutex remains locked during payment and packaging.
+
+Other threads must wait even though the shared stock is not being used.
+
+This reduces concurrency.
+
+The better flow is:
+
+```text
+Process payment without mutex
+Lock mutex
+Check and update stock
+Unlock mutex
+Package order without mutex
+```
+
+`unique_lock` allows us to do this.
+
+---
+
+## Where Should We Use `unique_lock`?
+
+Use `unique_lock` when:
+
+* The mutex should not be locked immediately
+* The mutex must be unlocked before the scope ends
+* The mutex needs to be locked again
+* Only a specific part of a large function needs protection
+* Lock ownership needs to be moved
+* A `condition_variable` is being used
+
+For a small and simple critical section, prefer `lock_guard`.
+
+---
+
+## Basic Syntax
+
+Required header:
+
+```cpp
+#include <mutex>
+```
+
+Create a mutex:
+
+```cpp
+mutex mtx;
+```
+
+Create a `unique_lock`:
+
+```cpp
+unique_lock<mutex> lock(mtx);
+```
+
+The mutex is locked immediately.
+
+```cpp
+void updateData(){
+    unique_lock<mutex> lock(mtx);
+
+    // Mutex is locked here
+}
+```
+
+When the function ends, `unique_lock` automatically unlocks the mutex.
+
+---
+
+## Automatic Unlocking
+
+```cpp
+void updateData(){
+    unique_lock<mutex> lock(mtx);
+
+    // Protected code
+}
+```
+
+Execution:
+
+```text
+unique_lock is created
+        ↓
+Mutex is locked
+        ↓
+Protected code executes
+        ↓
+Function ends
+        ↓
+unique_lock is destroyed
+        ↓
+Mutex is automatically unlocked
+```
+
+This provides the same basic safety as `lock_guard`.
+
+---
+
+## Manual Unlock
+
+Unlike `lock_guard`, `unique_lock` can unlock the mutex before the scope ends.
+
+```cpp
+unique_lock<mutex> lock(mtx);
+
+// Protected code
+
+lock.unlock();
+
+// Unprotected code
+```
+
+After `lock.unlock()`, another waiting thread can acquire the mutex.
+
+Example:
+
+```cpp
+void processOrder(){
+    unique_lock<mutex> lock(stockMutex);
+
+    availableStock = availableStock - 10;
+
+    lock.unlock();
+
+    cout << "Packaging order" << endl;
+}
+```
+
+The packaging work runs without holding the stock mutex.
+
+---
+
+## Locking Again
+
+After unlocking, the same `unique_lock` can lock the mutex again.
+
+```cpp
+unique_lock<mutex> lock(mtx);
+
+lock.unlock();
+
+// Other work
+
+lock.lock();
+
+// Protected work again
+```
+
+Example flow:
+
+```text
+Lock mutex
+Update shared data
+Unlock mutex
+Perform independent work
+Lock mutex again
+Update shared data again
+Unlock automatically when scope ends
+```
+
+---
+
+## Delayed Locking with `defer_lock`
+
+By default, `unique_lock` locks the mutex immediately.
+
+```cpp
+unique_lock<mutex> lock(mtx);
+```
+
+Sometimes we want to create the lock object now but lock the mutex later.
+
+For this, use `defer_lock`.
+
+```cpp
+unique_lock<mutex> lock(mtx, defer_lock);
+```
+
+At this point, the mutex is not locked.
+
+Later:
+
+```cpp
+lock.lock();
+```
+
+Example:
+
+```cpp
+void processOrder(){
+    unique_lock<mutex> lock(stockMutex, defer_lock);
+
+    cout << "Processing payment" << endl;
+
+    lock.lock();
+
+    availableStock = availableStock - 10;
+
+    lock.unlock();
+
+    cout << "Packaging order" << endl;
+}
+```
+
+Execution:
+
+```text
+unique_lock object created
+Mutex is not locked
+
+Payment processing starts
+
+lock.lock() is called
+Mutex is locked
+
+Stock is updated
+
+lock.unlock() is called
+Mutex is unlocked
+
+Packaging starts
+```
+
+---
+
+## `owns_lock()`
+
+We can check whether the `unique_lock` currently owns the mutex.
+
+```cpp
+if(lock.owns_lock()){
+    cout << "Mutex is locked by this unique_lock" << endl;
+}
+```
+
+Example:
+
+```cpp
+unique_lock<mutex> lock(mtx, defer_lock);
+
+cout << lock.owns_lock() << endl;
+
+lock.lock();
+
+cout << lock.owns_lock() << endl;
+```
+
+Possible output:
+
+```text
+0
+1
+```
+
+`0` means it does not own the mutex.
+
+`1` means it owns the mutex.
+
+---
+
+## `lock_guard` vs `unique_lock`
+
+```text
+lock_guard:
+Locks immediately
+Unlocks automatically
+Cannot manually unlock
+Cannot lock again
+Simple and lightweight
+Best for small critical sections
+
+unique_lock:
+Can lock immediately or later
+Can unlock manually
+Can lock again
+Can check lock ownership
+Can transfer ownership
+Required with condition_variable
+More flexible than lock_guard
+```
+
+---
+
+## Which One Should We Prefer?
+
+Use `lock_guard` when the complete scope needs protection.
+
+```cpp
+void update(){
+    lock_guard<mutex> lock(mtx);
+
+    sharedData++;
+}
+```
+
+Use `unique_lock` when only part of the function needs protection.
+
+```cpp
+void update(){
+    performIndependentWork();
+
+    unique_lock<mutex> lock(mtx);
+
+    sharedData++;
+
+    lock.unlock();
+
+    performMoreIndependentWork();
+}
+```
+
+Simple rule:
+
+```text
+Need only automatic lock and unlock?
+Use lock_guard.
+
+Need more control over locking and unlocking?
+Use unique_lock.
+```
+
+---
+
+## Why Is `unique_lock` Required with `condition_variable`?
+
+A `condition_variable` may temporarily unlock the mutex while a thread is waiting.
+
+Later, when the condition becomes true, it locks the mutex again before continuing.
+
+For this behaviour, the lock object must support:
+
+```text
+Unlock
+Wait
+Lock again
+```
+
+`lock_guard` cannot manually unlock and lock again.
+
+`unique_lock` can do this.
+
+That is why `condition_variable` normally works with `unique_lock`.
+
+Example syntax:
+
+```cpp
+unique_lock<mutex> lock(mtx);
+
+cv.wait(lock);
+```
+
+The detailed working of `condition_variable` will be covered later.
+
+---
+
+## Important Points
+
+Do not call `unlock()` if the `unique_lock` does not own the mutex.
+
+```cpp
+unique_lock<mutex> lock(mtx, defer_lock);
+
+lock.unlock(); // Incorrect because mutex is not locked
+```
+
+Do not call `lock()` again when the same `unique_lock` already owns the mutex.
+
+```cpp
+unique_lock<mutex> lock(mtx);
+
+lock.lock(); // Incorrect because it is already locked
+```
+
+Prefer to keep the protected section as small as possible.
+
+Do not hold a mutex during slow operations such as:
+
+```text
+Network calls
+File operations
+Long calculations
+Sleep
+Payment processing
+Logging to a slow external system
+```
+
+unless those operations genuinely require shared-data protection.
+
+---
+
+## Final Summary
+
+```text
+lock_guard is simple and safe.
+
+unique_lock provides the same automatic unlocking,
+but it also gives extra control.
+
+Use unique_lock when we need to:
+Lock later
+Unlock early
+Lock again
+Check ownership
+Use condition_variable
+```
+
+## Related File
+
+```text
+08_unique_lock.cpp
+```

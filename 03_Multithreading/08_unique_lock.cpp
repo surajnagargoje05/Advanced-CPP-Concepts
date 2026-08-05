@@ -1,13 +1,18 @@
 #include <iostream>
 #include <thread>
 #include <chrono>
-
+#include <mutex>
 using namespace std;
 
 int availableStock = 100;
+mutex stockMutex;
 
 void processOrder(const string &orderName, int quantity){
     cout << orderName << " Started Processing order" << endl;
+    unique_lock<mutex> lock(stockMutex, defer_lock);
+    cout << orderName << " is waiting for stock mutex" << endl;
+    lock.lock();
+    cout << orderName << " acquired stock mutex" << endl;
     int currentStock = availableStock;
     cout << orderName << " read available stock: " << currentStock << endl;
     this_thread::sleep_for(chrono::milliseconds(100));
@@ -20,6 +25,8 @@ void processOrder(const string &orderName, int quantity){
     else{
         cout << orderName << " failed because stock is insufficient" << endl;
     }
+    lock.unlock();
+    cout << orderName << " is releasing the stock mutex" << endl;
 }
 
 int main(){
