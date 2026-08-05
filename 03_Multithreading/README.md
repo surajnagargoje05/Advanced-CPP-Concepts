@@ -533,3 +533,237 @@ If multiple threads read and modify the same variable concurrently, synchronizat
 ```text
 03_passing_arguments_to_thread.cpp
 ```
+---
+
+# 6. Creating Threads Using Lambda Functions
+
+## Why Use Lambda Functions with Threads?
+
+Normally, we create a separate function and pass it to `std::thread`.
+
+```cpp
+void task(){
+    std::cout << "Task is running" << std::endl;
+}
+
+std::thread worker(task);
+```
+
+For a small task that is used only once, creating a separate function may be unnecessary.
+
+A lambda allows us to write the thread task directly while creating the thread.
+
+```cpp
+std::thread worker([](){
+    std::cout << "Task is running" << std::endl;
+});
+```
+
+Lambda functions are useful with threads when:
+
+* The task is small
+* The task is required only once
+* We do not want to create a separate function
+* We need to use variables available in the current function
+* We want the thread logic close to the thread creation code
+
+This makes small thread tasks easier to read and maintain.
+
+## Lambda Syntax
+
+```cpp
+[capture](parameters){
+    // Thread task
+};
+```
+
+The parts are:
+
+```text
+capture     -> Variables taken from the surrounding scope
+parameters  -> Values passed while creating the thread
+body        -> Work performed by the thread
+```
+
+## Lambda Without Parameters
+
+```cpp
+std::thread worker([](){
+    std::cout << "Worker thread is running" << std::endl;
+});
+```
+
+The lambda does not receive any parameters and does not capture any external variable.
+
+## Lambda With Parameters
+
+```cpp
+std::thread worker([](int number){
+    std::cout << "Number: " << number << std::endl;
+}, 10);
+```
+
+The value `10` is passed to the lambda parameter `number`.
+
+## Capturing a Variable by Value
+
+```cpp
+int number = 10;
+
+std::thread worker([number](){
+    std::cout << number << std::endl;
+});
+```
+
+`[number]` stores a copy of `number` inside the lambda.
+
+To modify the copied value inside the lambda, use `mutable`.
+
+```cpp
+std::thread worker([number]() mutable{
+    number = 50;
+});
+```
+
+The original variable outside the lambda is not changed.
+
+## Capturing a Variable by Reference
+
+Syntax:
+
+```cpp
+int number = 10;
+
+std::thread worker([&number](){
+    number = 100;
+});
+```
+
+`[&number]` accesses the original variable.
+
+The original variable must remain alive until the thread completes.
+
+## Capturing a Pointer
+
+Syntax:
+
+```cpp
+int number = 10;
+int* pointer = &number;
+
+std::thread worker([pointer](){
+    *pointer = 100;
+});
+```
+
+The pointer is captured by value, but it still points to the original variable.
+
+The pointed object must remain alive until the thread completes.
+
+## Common Capture Forms
+
+```text
+[]                   -> Capture nothing
+[number]             -> Capture number by value
+[&number]            -> Capture number by reference
+[pointer]            -> Capture pointer by value
+[=]                  -> Capture used external variables by value
+[&]                  -> Capture used external variables by reference
+[first, &second]     -> Capture first by value and second by reference
+```
+
+## Important
+
+Capturing by reference or pointer does not make access thread-safe.
+
+If multiple threads modify the same data at the same time, synchronization may be required.
+
+## Related File
+
+```text
+04_thread_with_lambda.cpp
+```
+---
+
+# 7. Race Condition
+
+A race condition occurs when multiple threads access the same shared data at the same time, and at least one thread modifies it.
+
+The final result depends on which thread executes first.
+
+## Simple Example
+
+```cpp
+int counter = 0;
+
+void increment(){
+    counter++;
+}
+```
+
+Suppose two threads execute `counter++`.
+
+Expected flow:
+
+```text
+Initial counter = 0
+
+Thread 1 increments → 1
+Thread 2 increments → 2
+```
+
+Expected result:
+
+```text
+2
+```
+
+But `counter++` is not a single operation. Internally, it performs:
+
+```text
+Read counter
+Add 1
+Write counter
+```
+
+A possible execution is:
+
+```text
+Thread 1 reads 0
+Thread 2 reads 0
+
+Thread 1 writes 1
+Thread 2 writes 1
+```
+
+Actual result:
+
+```text
+1
+```
+
+One update is lost. This is called a **race condition**.
+
+Race conditions happen when threads modify shared data without synchronization.
+
+The result may sometimes be correct and sometimes incorrect, depending on thread scheduling.
+
+## Solution
+
+Shared data can be protected using:
+
+```text
+mutex
+lock_guard
+atomic
+```
+
+These concepts will be covered next.
+
+## Related File
+
+The practical file uses a realistic warehouse inventory example:
+
+```text
+05_race_condition.cpp
+```
