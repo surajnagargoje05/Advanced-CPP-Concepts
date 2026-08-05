@@ -336,3 +336,200 @@ This topic includes:
 * Basic reason behind race conditions and mutexes
 
 For complete details, refer to: [Thread Internal Working](docs/thread-internal-working.md)
+
+---
+
+# 5. Passing Arguments to a Thread
+
+Arguments are passed after the function name while creating a thread.
+
+## Passing by Value
+
+```cpp
+void printNumber(int number);
+
+std::thread worker(printNumber, 10);
+```
+
+`std::thread` stores a copy of the argument.
+
+Changes made inside the thread do not affect the original variable.
+
+```text
+Original variable = 10
+Thread copy       = 50
+Original variable remains 10
+```
+
+If the thread is detached, the copied value remains available to the thread even after the original local variable is destroyed.
+
+However, if `main()` returns and the process ends before the detached thread finishes, the thread is terminated and may not complete its task.
+
+```text
+Detached thread receives a copy
+        ↓
+Original variable may be destroyed safely
+        ↓
+But process may end before thread completes
+```
+
+## Passing Multiple Arguments
+
+```cpp
+void printDetails(std::string name, int experience);
+
+std::thread worker(printDetails, "Suraj", 5);
+```
+
+Arguments must be passed in the same order as the function parameters.
+
+## Passing by Reference
+
+By default, `std::thread` copies arguments.
+
+To pass the original variable by reference, use `std::ref()`.
+
+Required header:
+
+```cpp
+#include <functional>
+```
+
+Example:
+
+```cpp
+void updateValue(int& value);
+
+int number = 10;
+
+std::thread worker(updateValue, std::ref(number));
+```
+
+Changes made inside the thread affect the original variable.
+
+```text
+Original variable = 10
+Thread changes it = 100
+Original variable becomes 100
+```
+
+The referenced variable must remain alive until the thread finishes.
+
+If the variable is destroyed while the thread is still using it, the reference becomes a **dangling reference**.
+
+Accessing a dangling reference causes **undefined behaviour**.
+
+Possible results include:
+
+```text
+Incorrect value
+Program crash
+Memory corruption
+Apparently correct execution
+```
+
+Using `join()` is normally safe because it makes the current thread wait before the local variable is destroyed.
+
+Be careful when using references with detached threads.
+
+## Passing by Pointer
+
+A pointer can also be passed to a thread.
+
+```cpp
+void updateValue(int* value);
+
+int number = 10;
+
+std::thread worker(updateValue, &number);
+```
+
+The pointer itself is copied into the thread, but both the main thread and worker thread point to the same original variable.
+
+```text
+Main thread pointer   ──┐
+                       ├── Original variable
+Worker thread pointer ──┘
+```
+
+Changes made through the pointer affect the original variable.
+
+```cpp
+void updateValue(int* value){
+    *value = 100;
+}
+```
+
+The pointed object must remain alive until the thread finishes.
+
+If the object is destroyed first, the pointer becomes a **dangling pointer**, and accessing it causes undefined behaviour.
+
+## Detached Thread Comparison
+
+### Detached Thread with Value
+
+```cpp
+int number = 10;
+
+std::thread worker(printNumber, number);
+worker.detach();
+```
+
+The thread owns a copy of `number`, so destroying the original variable does not create a dangling reference.
+
+But if `main()` returns, the complete process ends and the detached thread may remain incomplete.
+
+### Detached Thread with Reference
+
+```cpp
+int number = 10;
+
+std::thread worker(updateReference, std::ref(number));
+worker.detach();
+```
+
+If `number` is destroyed while the detached thread is still using it, the thread accesses a dangling reference.
+
+This is unsafe.
+
+### Detached Thread with Pointer
+
+```cpp
+int number = 10;
+
+std::thread worker(updatePointer, &number);
+worker.detach();
+```
+
+If `number` is destroyed while the detached thread is still using its address, the pointer becomes dangling.
+
+This is also unsafe.
+
+## Simple Comparison
+
+```text
+Pass by value:
+Thread receives a copy.
+Original variable lifetime is not required.
+Process must still remain alive for the thread to finish.
+
+Pass by reference:
+Thread accesses the original variable.
+Original variable must remain alive.
+
+Pass by pointer:
+Pointer is copied, but it points to the original object.
+The pointed object must remain alive.
+```
+
+## Important
+
+Passing by reference or pointer does not automatically make shared access thread-safe.
+
+If multiple threads read and modify the same variable concurrently, synchronization such as a mutex or atomic variable may be required.
+
+## Related File
+
+```text
+03_passing_arguments_to_thread.cpp
+```
