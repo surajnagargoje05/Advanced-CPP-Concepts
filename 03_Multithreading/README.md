@@ -1454,3 +1454,111 @@ Use condition_variable
 ```text
 08_unique_lock.cpp
 ```
+---
+
+---
+
+# 11. Object-Level Locking
+
+Object-level locking means every object has its own separate mutex.
+
+The mutex is declared as a normal, non-static data member of the class.
+
+```cpp
+class BankAccount{
+private:
+    int balance;
+    mutex accountMutex;
+};
+```
+
+When multiple objects are created, every object receives its own mutex.
+
+```cpp
+BankAccount account1(1000);
+BankAccount account2(2000);
+```
+
+Conceptually:
+
+```text
+account1
+├── balance
+└── mutex1
+
+account2
+├── balance
+└── mutex2
+```
+
+If one thread locks `account1`, another thread can still work on `account2`.
+
+```text
+Thread 1 → Locks account1
+Thread 2 → Locks account2
+
+Both threads can run concurrently.
+```
+
+However, two threads cannot modify the same object at the same time.
+
+```text
+Thread 1 → Locks account1
+Thread 2 → Also wants account1
+
+Thread 2 must wait.
+```
+
+## Basic Syntax
+
+```cpp
+class BankAccount{
+private:
+    int balance;
+    mutex accountMutex;
+
+public:
+    void deposit(int amount){
+        lock_guard<mutex> lock(accountMutex);
+
+        balance = balance + amount;
+    }
+};
+```
+
+Since `accountMutex` is non-static, every `BankAccount` object has a different mutex.
+
+## Where Is Object-Level Locking Useful?
+
+Use object-level locking when every object manages independent data.
+
+Examples:
+
+```text
+Each bank account has a separate balance
+Each robot has a separate state
+Each sensor has separate data
+Each order has a separate status
+Each device has separate configuration
+```
+
+## Main Benefit
+
+Object-level locking provides better concurrency.
+
+```text
+Different objects → Can be processed together
+Same object       → Only one thread can modify it at a time
+```
+
+## Important
+
+The mutex should normally be private so that the class controls access to its own data.
+
+Object-level locking protects only that object's data. It does not protect static variables or other shared resources used by all objects.
+
+## Related File
+
+```text
+09_object_level_locking.cpp
+```
