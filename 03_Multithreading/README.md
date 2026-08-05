@@ -1670,3 +1670,491 @@ Use it only when the protected resource is genuinely shared by all objects.
 ```text
 10_class_level_locking.cpp
 ```
+---
+
+# 13. Multiple Mutexes
+
+Multiple mutexes are used when a program has multiple independent shared resources.
+
+Each mutex protects one specific shared resource.
+
+Example:
+
+```cpp
+int balance = 1000;
+string transactionLog;
+
+mutex balanceMutex;
+mutex logMutex;
+```
+
+Here:
+
+```text
+balanceMutex → Protects balance
+logMutex     → Protects transactionLog
+```
+
+## Why Use Separate Mutexes?
+
+Suppose one thread updates the balance and another thread writes a log.
+
+With separate mutexes:
+
+```text
+Thread 1 locks balanceMutex
+Thread 2 locks logMutex
+
+Both threads can run concurrently.
+```
+
+Independent resources do not block each other unnecessarily.
+
+## When One Operation Needs Multiple Mutexes
+
+Sometimes one operation needs multiple shared resources.
+
+For example, a deposit operation must:
+
+```text
+1. Update the balance
+2. Update the transaction log
+```
+
+Therefore, the function needs both mutexes.
+
+```cpp
+balanceMutex.lock();
+logMutex.lock();
+
+balance = balance + amount;
+transactionLog = "Deposit completed";
+
+logMutex.unlock();
+balanceMutex.unlock();
+```
+
+## Locking Sequence
+
+When multiple mutexes are required, all threads should lock them in the same order.
+
+Example order:
+
+```text
+First  → balanceMutex
+Second → logMutex
+```
+
+```cpp
+balanceMutex.lock();
+logMutex.lock();
+```
+
+If another thread uses the opposite order, deadlock may occur.
+
+```text
+Thread 1:
+Locks balanceMutex
+Waits for logMutex
+
+Thread 2:
+Locks logMutex
+Waits for balanceMutex
+```
+
+## Unlocking Sequence
+
+A common practice is to unlock mutexes in the reverse order of locking.
+
+If mutexes were locked like this:
+
+```text
+First  → balanceMutex
+Second → logMutex
+```
+
+Unlock them like this:
+
+```text
+First  → logMutex
+Second → balanceMutex
+```
+
+Code:
+
+```cpp
+balanceMutex.lock();
+logMutex.lock();
+
+// Critical section
+
+logMutex.unlock();
+balanceMutex.unlock();
+```
+
+This follows the **last locked, first unlocked** approach.
+
+```text
+Lock order:
+balanceMutex → logMutex
+
+Unlock order:
+logMutex → balanceMutex
+```
+
+Reverse unlocking keeps resource ownership clear, especially when locks depend on each other.
+
+For simple independent mutexes, reverse unlocking is not always technically required, but it is a good and consistent practice.
+
+## Simple Rule
+
+```text
+Lock mutexes in a fixed order.
+
+Unlock mutexes in the reverse order.
+```
+
+## Benefits
+
+* Independent resources can run concurrently
+* Unnecessary blocking is reduced
+* Each mutex protects a specific resource
+* Fixed lock order reduces deadlock risk
+* Reverse unlock order keeps locking logic clear
+
+## Important
+
+Manual `lock()` and `unlock()` are risky if an early return or exception occurs.
+
+Later, safer methods such as these should be preferred:
+
+```text
+std::lock()
+scoped_lock
+unique_lock with defer_lock
+```
+
+## Related File
+
+```text
+11_multiple_mutexes.cpp
+```
+---
+
+# 14. `chrono` and `sleep_for()`
+
+`std::chrono` provides time-related types in C++.
+
+`this_thread::sleep_for()` pauses only the thread that calls it for a specified duration.
+
+Required headers:
+
+```cpp
+#include <chrono>
+#include <thread>
+```
+
+Example syntax:
+
+```cpp
+this_thread::sleep_for(chrono::milliseconds(500));
+```
+
+This pauses the current thread for approximately `500` milliseconds.
+
+## What Happens During Sleep?
+
+```text
+Thread is running
+      ↓
+sleep_for() is called
+      ↓
+Thread enters sleeping state
+      ↓
+Specified time completes
+      ↓
+Thread becomes ready
+      ↓
+Scheduler runs it again
+```
+
+While one thread is sleeping, other threads can continue running.
+
+```text
+Thread 1 → Sleeping
+Thread 2 → Running
+Main     → Running or waiting
+```
+
+## Why Do We Use Sleep in Examples?
+
+In learning examples, sleep is used to simulate operations that take time.
+
+Examples:
+
+```text
+Payment processing
+Network response
+Sensor reading
+File operation
+Database request
+Order processing
+```
+
+It also gives other threads a chance to run, making thread execution order easier to observe.
+
+For example:
+
+```text
+Thread 1 performs one step
+Thread 1 sleeps
+Thread 2 gets CPU time
+Thread 2 performs its work
+Thread 1 wakes up and continues
+```
+
+## What Happens Without Sleep?
+
+Without sleep, one thread may complete its work very quickly before another thread gets CPU time.
+
+Example:
+
+```text
+Thread 1 starts
+Thread 1 completes
+Thread 2 starts
+```
+
+With sleep, execution may look like:
+
+```text
+Thread 1 starts
+Thread 1 sleeps
+Thread 2 starts
+Thread 2 performs work
+Thread 1 wakes up
+```
+
+Sleep helps us clearly observe concurrent thread behaviour during testing and learning.
+
+## Where Is `sleep_for()` Used?
+
+Common uses include:
+
+```text
+Simulating slow operations
+Adding delay between retries
+Running periodic tasks
+Waiting before the next sensor read
+Testing timing behaviour
+Reducing repeated CPU polling
+```
+
+Example periodic flow:
+
+```text
+Read sensor
+Sleep for 100 milliseconds
+Read sensor again
+```
+
+## Common Time Durations
+
+```cpp
+chrono::nanoseconds
+chrono::microseconds
+chrono::milliseconds
+chrono::seconds
+chrono::minutes
+chrono::hours
+```
+
+Examples:
+
+```cpp
+this_thread::sleep_for(chrono::milliseconds(100));
+this_thread::sleep_for(chrono::seconds(2));
+```
+
+## Important
+
+`sleep_for()` pauses the thread for at least approximately the requested time.
+
+The thread may resume slightly later because the operating-system scheduler decides when it gets CPU time again.
+
+```text
+sleep_for(100 milliseconds)
+
+does not guarantee:
+Resume at exactly 100 milliseconds
+
+It means:
+Do not run this thread for approximately 100 milliseconds
+```
+
+## Final Summary
+
+```text
+sleep_for() pauses only the calling thread.
+
+Other threads can continue running.
+
+It is useful for delays, periodic work,
+testing and simulating time-consuming operations.
+
+Without sleep, one thread may finish before
+another thread gets a chance to run.
+```
+---
+
+# 15. Deadlock
+
+A deadlock occurs when two or more threads wait for each other forever, and none of them can continue.
+
+Deadlock commonly happens when multiple mutexes are locked in different orders.
+
+## Simple Example
+
+Suppose we have two mutexes:
+
+```cpp
+mutex balanceMutex;
+mutex logMutex;
+```
+
+Two threads use them differently:
+
+```text
+Thread 1:
+Locks balanceMutex
+Then tries to lock logMutex
+
+Thread 2:
+Locks logMutex
+Then tries to lock balanceMutex
+```
+
+Possible execution:
+
+```text
+Thread 1 locks balanceMutex
+Thread 2 locks logMutex
+
+Thread 1 waits for logMutex
+Thread 2 waits for balanceMutex
+```
+
+Now:
+
+```text
+Thread 1 cannot continue until Thread 2 releases logMutex.
+
+Thread 2 cannot continue until Thread 1 releases balanceMutex.
+```
+
+Neither thread can continue or release its first mutex.
+
+This situation is called a deadlock.
+
+## Deadlock Flow
+
+```text
+Thread 1 owns balanceMutex
+Thread 1 waits for logMutex
+
+Thread 2 owns logMutex
+Thread 2 waits for balanceMutex
+
+Both threads wait forever.
+```
+
+## Why Does `main()` Also Appear Stuck?
+
+If `main()` calls:
+
+```cpp
+thread1.join();
+thread2.join();
+```
+
+the main thread waits for both worker threads to complete.
+
+But the worker threads are deadlocked and never complete.
+
+Therefore, the main thread also waits forever at `join()`.
+
+## Common Deadlock Conditions
+
+Deadlock can occur when:
+
+* Multiple threads use multiple mutexes
+* A thread holds one mutex while waiting for another
+* Mutexes are locked in different orders
+* The mutex cannot be taken away automatically
+* Threads keep waiting without releasing their current mutex
+
+## How to Prevent Deadlock
+
+Common solutions are:
+
+```text
+Use the same lock order in every thread
+Use std::lock() to lock multiple mutexes
+Use scoped_lock
+Keep critical sections small
+Avoid holding one mutex while waiting for another resource
+```
+
+Example of consistent lock order:
+
+```text
+Thread 1: balanceMutex → logMutex
+Thread 2: balanceMutex → logMutex
+```
+
+Both threads request the mutexes in the same order, reducing deadlock risk.
+
+## Important
+
+Deadlock does not normally crash the program.
+
+The program remains running, but the affected threads stop making progress.
+
+```text
+Program is running
+Threads are waiting
+No further work is completed
+```
+
+## Related Files
+
+```text
+12_deadlock_occurrence.cpp
+```
+
+This file intentionally creates a deadlock by locking the same two mutexes in opposite order.
+
+```text
+Thread 1: balanceMutex → logMutex
+Thread 2: logMutex → balanceMutex
+```
+
+The program becomes stuck because both threads wait for each other.
+
+```text
+13_deadlock_resolved.cpp
+```
+
+This file resolves the deadlock by using the same locking order in both threads.
+
+```text
+Thread 1: balanceMutex → logMutex
+Thread 2: bala## Related File
+
+```text
+12_deadlock.cppnceMutex → logMutex
+```
+
+One thread may wait, but eventually both threads complete successfully.
+
+```
