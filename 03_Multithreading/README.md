@@ -1562,3 +1562,111 @@ Object-level locking protects only that object's data. It does not protect stati
 ```text
 09_object_level_locking.cpp
 ```
+---
+
+# 12. Class-Level Locking
+
+Class-level locking means all objects of a class share one common mutex.
+
+The mutex is declared as a `static` data member.
+
+```cpp
+class BankAccount{
+private:
+    int balance;
+    static mutex classMutex;
+};
+```
+
+A static mutex belongs to the class, not to one specific object.
+
+```cpp
+BankAccount account1(1000);
+BankAccount account2(2000);
+```
+
+Conceptually:
+
+```text
+account1 ──┐
+           ├── One common class mutex
+account2 ──┘
+```
+
+If one thread locks the class mutex while working on `account1`, another thread working on `account2` must also wait.
+
+```text
+Thread 1 → Locks common mutex for account1
+Thread 2 → Wants common mutex for account2
+
+Thread 2 must wait.
+```
+
+## Basic Syntax
+
+```cpp
+class BankAccount{
+private:
+    int balance;
+    static mutex classMutex;
+
+public:
+    void deposit(int amount){
+        lock_guard<mutex> lock(classMutex);
+
+        balance = balance + amount;
+    }
+};
+
+mutex BankAccount::classMutex;
+```
+
+The static mutex must be defined once outside the class.
+
+## Where Is Class-Level Locking Useful?
+
+Use class-level locking when all objects access one common shared resource.
+
+Examples:
+
+```text
+Common log file
+Shared database connection
+Static counter
+Shared hardware device
+Global configuration
+Common transaction history
+```
+
+## Main Behaviour
+
+```text
+Different objects → Still use the same mutex
+Same object       → Uses the same mutex
+```
+
+So only one protected operation can run at a time across all objects.
+
+## Object-Level vs Class-Level
+
+```text
+Object-level locking:
+Each object has its own mutex.
+Different objects can work concurrently.
+
+Class-level locking:
+All objects share one mutex.
+Different objects may block each other.
+```
+
+## Important
+
+Class-level locking may reduce concurrency because unrelated objects also wait for the same mutex.
+
+Use it only when the protected resource is genuinely shared by all objects.
+
+## Related File
+
+```text
+10_class_level_locking.cpp
+```
