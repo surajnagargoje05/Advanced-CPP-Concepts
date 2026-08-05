@@ -2421,3 +2421,369 @@ lock(lock1, lock2);
 ```text
 14_std_lock.cpp
 ```
+---
+
+# 17. `scoped_lock`
+
+## Why Do We Need `scoped_lock`?
+
+We previously used `std::lock()` with `unique_lock` to safely lock multiple mutexes.
+
+```cpp
+unique_lock<mutex> lock1(mutex1, defer_lock);
+unique_lock<mutex> lock2(mutex2, defer_lock);
+
+lock(lock1, lock2);
+```
+
+This works correctly, but it requires multiple lines and several objects.
+
+In C++17, `scoped_lock` provides a simpler way to lock one or multiple mutexes safely.
+
+```cpp
+scoped_lock lock(mutex1, mutex2);
+```
+
+In simple words:
+
+```text
+std::lock() + unique_lock → Detailed and flexible approach
+
+scoped_lock               → Simple approach for locking
+                            multiple mutexes
+```
+
+## Required Header
+
+```cpp
+#include <mutex>
+```
+
+`scoped_lock` is available from C++17.
+
+Compile using:
+
+```bash
+g++ -std=c++17 15_scoped_lock.cpp -pthread
+```
+
+## Basic Syntax
+
+For one mutex:
+
+```cpp
+scoped_lock lock(mutex1);
+```
+
+For multiple mutexes:
+
+```cpp
+scoped_lock lock(mutex1, mutex2);
+```
+
+For three mutexes:
+
+```cpp
+scoped_lock lock(mutex1, mutex2, mutex3);
+```
+
+When the `scoped_lock` object is created, it locks the provided mutexes.
+
+When the scope ends, it automatically unlocks them.
+
+## How Does It Work?
+
+```cpp
+{
+    scoped_lock lock(mutex1, mutex2);
+
+    // Both mutexes are locked here
+}
+
+// Both mutexes are automatically unlocked here
+```
+
+Execution flow:
+
+```text
+scoped_lock object is created
+        ↓
+All provided mutexes are locked
+        ↓
+Critical section executes
+        ↓
+Scope ends
+        ↓
+scoped_lock object is destroyed
+        ↓
+All mutexes are automatically unlocked
+```
+
+## Why Is It Safer Than Manual Locking?
+
+Manual locking may look like this:
+
+```cpp
+mutex1.lock();
+mutex2.lock();
+
+// Critical section
+
+mutex2.unlock();
+mutex1.unlock();
+```
+
+Problems with manual locking:
+
+```text
+Developer may use the wrong lock order
+Developer may forget to unlock
+Early return may skip unlock()
+Exception may skip unlock()
+Deadlock may occur
+```
+
+With `scoped_lock`:
+
+```cpp
+scoped_lock lock(mutex1, mutex2);
+```
+
+The locking and unlocking are handled automatically.
+
+## Deadlock-Safe Multiple Locking
+
+Suppose two threads transfer money in opposite directions.
+
+```text
+Thread 1:
+Account A → Account B
+
+Thread 2:
+Account B → Account A
+```
+
+Both operations require two account mutexes.
+
+Manual locking may create opposite lock orders:
+
+```text
+Thread 1:
+Locks Account A
+Then locks Account B
+
+Thread 2:
+Locks Account B
+Then locks Account A
+```
+
+This may cause deadlock.
+
+Instead, both threads can use:
+
+```cpp
+scoped_lock lock(sourceMutex, destinationMutex);
+```
+
+`scoped_lock` uses deadlock-avoidance behaviour for multiple mutexes.
+
+After the statement completes, the current thread owns all provided mutexes.
+
+## Automatic Unlocking
+
+`scoped_lock` follows RAII.
+
+RAII means the lifetime of the lock object controls the lifetime of mutex ownership.
+
+```text
+Object created   → Mutexes locked
+Object destroyed → Mutexes unlocked
+```
+
+Example:
+
+```cpp
+void update(){
+    scoped_lock lock(mutex1, mutex2);
+
+    if(error){
+        return;
+    }
+}
+```
+
+Even if the function returns early, both mutexes are automatically unlocked.
+
+This makes `scoped_lock` safer than manual `lock()` and `unlock()`.
+
+## `lock_guard` vs `scoped_lock`
+
+For one mutex, both can be used.
+
+```cpp
+lock_guard<mutex> lock(mtx);
+```
+
+```cpp
+scoped_lock lock(mtx);
+```
+
+Main difference:
+
+```text
+lock_guard:
+Normally used for one mutex
+Available before C++17
+Simple automatic locking
+
+scoped_lock:
+Can lock one or multiple mutexes
+Available from C++17
+Useful for deadlock-safe multiple locking
+```
+
+For a single mutex, `lock_guard` is still simple and clear.
+
+For multiple mutexes in C++17, `scoped_lock` is usually preferred.
+
+## `unique_lock` vs `scoped_lock`
+
+```text
+unique_lock:
+Can unlock manually
+Can lock again
+Supports defer_lock
+Supports condition_variable
+Movable
+More flexible
+
+scoped_lock:
+Locks immediately
+Cannot manually unlock
+Cannot lock again
+Simple automatic lifetime
+Best when all mutexes are needed for the complete scope
+```
+
+Use `unique_lock` when you need control over when the mutex is locked or unlocked.
+
+Use `scoped_lock` when you want all mutexes locked for the complete scope.
+
+## `std::lock()` vs `scoped_lock`
+
+Using `std::lock()`:
+
+```cpp
+unique_lock<mutex> lock1(mutex1, defer_lock);
+unique_lock<mutex> lock2(mutex2, defer_lock);
+
+lock(lock1, lock2);
+```
+
+Using `scoped_lock`:
+
+```cpp
+scoped_lock lock(mutex1, mutex2);
+```
+
+Both approaches can safely acquire multiple mutexes.
+
+`scoped_lock` is shorter and easier when no manual lock control is required.
+
+## When Should We Use `scoped_lock`?
+
+Use `scoped_lock` when:
+
+```text
+One operation needs multiple mutexes
+All mutexes are required for the complete scope
+Automatic unlocking is required
+Manual lock and unlock are unnecessary
+C++17 or newer is available
+```
+
+Realistic examples:
+
+```text
+Money transfer between two accounts
+Move data between two queues
+Transfer a parcel between two containers
+Swap data between two shared objects
+Update sensor data and robot state together
+Copy data between two thread-safe objects
+```
+
+## Important: Same Mutex Must Not Be Passed Twice
+
+Do not pass the same mutex twice.
+
+Incorrect:
+
+```cpp
+scoped_lock lock(mtx, mtx);
+```
+
+A normal mutex cannot be locked twice by the same thread.
+
+This may cause deadlock or undefined behaviour depending on the mutex type and implementation.
+
+## Important: Object Lifetime
+
+The mutexes must remain alive while `scoped_lock` is using them.
+
+```text
+Mutex objects must exist
+        ↓
+scoped_lock is created
+        ↓
+Critical section executes
+        ↓
+scoped_lock is destroyed
+        ↓
+Mutexes may later be destroyed
+```
+
+## Scope Control
+
+A smaller scope can be created when the mutexes should be released early.
+
+```cpp
+void process(){
+    performIndependentWork();
+
+    {
+        scoped_lock lock(mutex1, mutex2);
+
+        // Protected work
+    }
+
+    performMoreIndependentWork();
+}
+```
+
+The mutexes are unlocked when the inner block ends.
+
+This is useful because unrelated work does not keep the mutexes locked.
+
+## Final Summary
+
+```text
+scoped_lock is available from C++17.
+
+It can lock one or multiple mutexes.
+
+For multiple mutexes, it avoids manual lock-order problems.
+
+It automatically unlocks all mutexes when the scope ends.
+
+Use scoped_lock when all mutexes are required
+for the complete critical section.
+
+Use unique_lock when manual lock or unlock control is needed.
+```
+
+## Related File
+
+```text
+15_scoped_lock.cpp
+```
