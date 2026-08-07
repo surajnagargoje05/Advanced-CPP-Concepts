@@ -2787,3 +2787,640 @@ Use unique_lock when manual lock or unlock control is needed.
 ```text
 15_scoped_lock.cpp
 ```
+---
+
+# 18. Condition Variable
+
+## Why Do We Need a Condition Variable?
+
+Sometimes one thread cannot continue until another thread completes some work or changes a condition.
+
+Example:
+
+```text
+Consumer thread:
+Needs data from a shared buffer
+
+Producer thread:
+Adds data to the shared buffer
+```
+
+The consumer should wait until data becomes available.
+
+Without a condition variable, the consumer may continuously check the buffer:
+
+```text
+Is data available?
+No
+
+Is data available?
+No
+
+Is data available?
+No
+```
+
+This repeated checking wastes CPU time. It is called **busy waiting**.
+
+A condition variable allows the consumer thread to sleep while waiting.
+
+When the producer adds data, it sends a notification and the consumer wakes up.
+
+```text
+Consumer checks condition
+        ↓
+Condition is false
+        ↓
+Consumer waits without using CPU
+        ↓
+Producer adds data
+        ↓
+Producer sends notification
+        ↓
+Consumer wakes up
+        ↓
+Consumer checks condition again
+        ↓
+Consumer continues
+```
+
+## Required Headers
+
+```cpp
+#include <condition_variable>
+#include <mutex>
+```
+
+## Main Components
+
+A condition-variable implementation normally needs:
+
+```text
+Shared data
+Mutex
+Condition variable
+Condition or predicate
+```
+
+Example:
+
+```cpp
+int data = 0;
+bool dataReady = false;
+
+mutex dataMutex;
+condition_variable cv;
+```
+
+Here:
+
+```text
+data       → Shared data
+dataReady  → Condition
+dataMutex  → Protects shared data and condition
+cv         → Allows a thread to wait and receive notification
+```
+
+## Basic Consumer Syntax
+
+```cpp
+unique_lock<mutex> lock(dataMutex);
+
+cv.wait(lock, [](){
+    return dataReady;
+});
+```
+
+The consumer waits until `dataReady` becomes `true`.
+
+## Basic Producer Syntax
+
+```cpp
+{
+    lock_guard<mutex> lock(dataMutex);
+
+    data = 100;
+    dataReady = true;
+}
+
+cv.notify_one();
+```
+
+The producer updates the shared data and then sends a notification.
+
+## Why Is `unique_lock` Required?
+
+`condition_variable::wait()` must temporarily unlock the mutex while the thread is waiting.
+
+Otherwise, the producer would never be able to acquire the mutex and update the condition.
+
+`unique_lock` supports automatic unlocking and locking again.
+
+```text
+Consumer acquires mutex
+        ↓
+Consumer checks condition
+        ↓
+Condition is false
+        ↓
+wait() unlocks mutex
+        ↓
+Consumer sleeps
+        ↓
+Producer acquires mutex
+        ↓
+Producer updates shared data
+        ↓
+Producer unlocks mutex
+        ↓
+Producer sends notification
+        ↓
+Consumer wakes up
+        ↓
+wait() locks mutex again
+        ↓
+Consumer checks condition again
+```
+
+`lock_guard` cannot be used with `wait()` because it cannot be manually unlocked and locked again.
+
+## How `wait()` Works
+
+```cpp
+cv.wait(lock);
+```
+
+When called, `wait()` performs these operations:
+
+```text
+1. Unlock the mutex
+2. Put the thread into waiting state
+3. Wait for notification
+4. Wake up
+5. Lock the mutex again
+6. Continue execution
+```
+
+However, a thread may sometimes wake up even without the required condition becoming true.
+
+This is called a **spurious wake-up**.
+
+Therefore, we should always check a condition after waking.
+
+## Predicate Form of `wait()`
+
+Preferred syntax:
+
+```cpp
+cv.wait(lock, [](){
+    return dataReady;
+});
+```
+
+This is logically similar to:
+
+```cpp
+while(!dataReady){
+    cv.wait(lock);
+}
+```
+
+The predicate form automatically checks the condition again after every wake-up.
+
+```text
+Predicate returns false → Continue waiting
+Predicate returns true  → Continue execution
+```
+
+## What Is a Predicate?
+
+A predicate is a condition that returns either `true` or `false`.
+
+Example:
+
+```cpp
+[](){
+    return dataReady;
+}
+```
+
+Meaning:
+
+```text
+dataReady == false → Thread should keep waiting
+dataReady == true  → Thread can continue
+```
+
+## `notify_one()`
+
+```cpp
+cv.notify_one();
+```
+
+`notify_one()` wakes one waiting thread.
+
+Use it when only one waiting thread needs to process the event.
+
+Example:
+
+```text
+One producer
+One consumer
+
+Producer adds one item
+Producer wakes one consumer
+```
+
+## `notify_all()`
+
+```cpp
+cv.notify_all();
+```
+
+`notify_all()` wakes all threads waiting on the condition variable.
+
+Use it when multiple waiting threads may need to recheck the condition.
+
+Example:
+
+```text
+System shutdown requested
+        ↓
+Wake all worker threads
+        ↓
+Every worker checks shutdown condition
+```
+
+Important:
+
+```text
+notify_one() → Wakes one waiting thread
+notify_all() → Wakes all waiting threads
+```
+
+A notification does not guarantee that the awakened thread can continue. It must acquire the mutex and check the predicate again.
+
+## Should Notification Be Sent Before or After Unlocking?
+
+A common pattern is:
+
+```cpp
+{
+    lock_guard<mutex> lock(dataMutex);
+
+    data = 100;
+    dataReady = true;
+}
+
+cv.notify_one();
+```
+
+The mutex is released before notification.
+
+This allows the awakened thread to acquire the mutex immediately.
+
+Notification while holding the mutex is valid, but the awakened thread may wake and then immediately wait for the same mutex.
+
+## Complete Producer–Consumer Flow
+
+```text
+Consumer starts
+        ↓
+Consumer locks mutex
+        ↓
+Consumer checks dataReady
+        ↓
+dataReady is false
+        ↓
+Consumer waits and releases mutex
+        ↓
+Producer starts
+        ↓
+Producer locks mutex
+        ↓
+Producer creates data
+        ↓
+Producer sets dataReady = true
+        ↓
+Producer releases mutex
+        ↓
+Producer calls notify_one()
+        ↓
+Consumer wakes up
+        ↓
+Consumer locks mutex again
+        ↓
+Consumer checks dataReady
+        ↓
+dataReady is true
+        ↓
+Consumer reads data
+```
+
+## Why Do We Need Both Mutex and Condition Variable?
+
+The condition variable handles waiting and notification.
+
+The mutex protects the shared data and condition.
+
+```text
+condition_variable:
+Wait and notification mechanism
+
+mutex:
+Protects shared state from concurrent access
+```
+
+A condition variable does not protect shared data by itself.
+
+## Can Notification Be Missed?
+
+The predicate protects us from depending only on notifications.
+
+Suppose the producer updates data before the consumer starts waiting:
+
+```text
+Producer sets dataReady = true
+Producer sends notification
+Consumer starts later
+```
+
+When the consumer calls:
+
+```cpp
+cv.wait(lock, predicate);
+```
+
+the predicate is checked first.
+
+Since `dataReady` is already `true`, the consumer does not wait.
+
+This is why the shared condition is important.
+
+```text
+Notification is only a signal.
+The condition stores the actual state.
+```
+
+## Common Mistakes
+
+### 1. Waiting Without a Predicate
+
+```cpp
+cv.wait(lock);
+```
+
+This does not safely handle spurious wake-ups.
+
+Prefer:
+
+```cpp
+cv.wait(lock, [](){
+    return dataReady;
+});
+```
+
+### 2. Updating the Condition Without a Mutex
+
+Incorrect:
+
+```cpp
+dataReady = true;
+cv.notify_one();
+```
+
+If multiple threads access `dataReady`, it should be protected by the same mutex.
+
+### 3. Forgetting to Notify
+
+If the producer changes the condition but does not notify, the consumer may remain waiting.
+
+### 4. Using Different Mutexes
+
+The condition and shared data should be protected consistently using the same mutex.
+
+### 5. Assuming Notification Means Immediate Execution
+
+A notified thread only becomes ready to run.
+
+The operating-system scheduler decides when it actually runs.
+
+## Where Are Condition Variables Used?
+
+Common use cases include:
+
+```text
+Producer-consumer queues
+Waiting for data to arrive
+Waiting for a buffer to become non-empty
+Waiting for a buffer to become non-full
+Worker-thread task queues
+Thread-pool implementation
+Waiting for initialization to complete
+Waiting for shutdown signal
+Waiting for device or network events
+```
+
+## Condition Variable vs `sleep_for()`
+
+```text
+sleep_for():
+Waits for a fixed amount of time
+
+condition_variable:
+Waits until a specific condition becomes true
+```
+
+With `sleep_for()`, a thread may wake too early or too late.
+
+With a condition variable, the thread is notified when the required state changes.
+
+## Final Summary
+
+```text
+A condition variable allows a thread to wait
+until another thread changes a condition.
+
+The waiting thread does not continuously use CPU.
+
+A mutex protects the shared state.
+
+unique_lock is used because wait() must:
+Unlock the mutex
+Put the thread to sleep
+Wake the thread
+Lock the mutex again
+
+notify_one() wakes one waiting thread.
+
+notify_all() wakes all waiting threads.
+
+Always use a predicate to check the actual condition.
+```
+
+## Related File
+
+```text
+16_condition_variable.cpp
+```
+---
+
+# 19. Bounded Producer–Consumer Problem
+
+A bounded buffer has a fixed maximum capacity.
+
+Example:
+
+```text
+Buffer capacity = 5
+```
+
+The producer cannot add more data when the buffer is full.
+
+The consumer cannot remove data when the buffer is empty.
+
+## Conditions
+
+```text
+Producer waits when → Buffer is full
+Consumer waits when → Buffer is empty
+```
+
+We use two condition variables:
+
+```cpp
+condition_variable notEmpty;
+condition_variable notFull;
+```
+
+Their responsibilities are:
+
+```text
+notEmpty → Consumer waits until buffer contains data
+notFull  → Producer waits until buffer has free space
+```
+
+## Producer Flow
+
+```text
+Check whether buffer has free space
+        ↓
+Buffer is full
+        ↓
+Producer waits on notFull
+        ↓
+Consumer removes an item
+        ↓
+Consumer calls notFull.notify_one()
+        ↓
+Producer wakes up
+        ↓
+Producer adds an item
+        ↓
+Producer calls notEmpty.notify_one()
+```
+
+Producer predicate:
+
+```cpp
+return buffer.size() < BUFFER_CAPACITY;
+```
+
+The producer continues only when the buffer has available space.
+
+## Consumer Flow
+
+```text
+Check whether buffer contains data
+        ↓
+Buffer is empty
+        ↓
+Consumer waits on notEmpty
+        ↓
+Producer adds an item
+        ↓
+Producer calls notEmpty.notify_one()
+        ↓
+Consumer wakes up
+        ↓
+Consumer removes an item
+        ↓
+Consumer calls notFull.notify_one()
+```
+
+Consumer predicate:
+
+```cpp
+return !buffer.empty() || productionCompleted;
+```
+
+The consumer continues when data is available or when production has completed.
+
+## Why Are Two Condition Variables Used?
+
+The producer and consumer wait for different conditions.
+
+```text
+Producer needs → Buffer not full
+Consumer needs → Buffer not empty
+```
+
+Using separate condition variables makes notifications clear.
+
+```text
+After push:
+Notify consumer using notEmpty
+
+After pop:
+Notify producer using notFull
+```
+
+## Important Flow
+
+```text
+Producer pushes data
+        ↓
+Buffer may no longer be empty
+        ↓
+Notify consumer
+
+Consumer pops data
+        ↓
+Buffer may no longer be full
+        ↓
+Notify producer
+```
+
+## Why Is `unique_lock` Used?
+
+`wait()` must temporarily unlock the mutex while the thread is waiting.
+
+This allows the other thread to access the buffer and change its state.
+
+```text
+Thread checks condition
+        ↓
+Condition is false
+        ↓
+wait() unlocks mutex
+        ↓
+Thread sleeps
+        ↓
+Notification received
+        ↓
+wait() locks mutex again
+        ↓
+Condition checked again
+```
+
+## Important
+
+Do not call `sleep_for()` while holding the buffer mutex unless the shared buffer must remain locked.
+
+Slow work should normally be performed outside the critical section.
+
+## Related File
+
+```text
+17_bounded_producer_consumer.cpp
+```
